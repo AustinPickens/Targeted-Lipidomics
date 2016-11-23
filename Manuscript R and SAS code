@@ -1,0 +1,161 @@
+load("sqrt min imputed oxylipids.rda") # loading the R object "ox.minimp", the sqrt min imputed oxylipid data matrix
+load("human data.rda") # loading the R object "H", the data set containing patient clinical metadata (i.e., BMI, WC, age, smoking)
+
+all.equal.character(rownames(H), rownames(ox.minimp)) # The clinical data for each patient is aligned with their oxylipid data
+
+###################################
+####### ANOVA and Post Hoc  ########
+###################################
+
+#### Kruskall Wallis (KW) one-way ANOVA was conducted across BMI categories along
+  # with Dunn's test for multiple comparison  #####
+
+anova.dat=data.frame(H$age,H$BMI, H$WC, ox.minimp)# data for ANOVA and post hoc in Table 1 and Supplementary Table 1
+
+### KW one-way ANOVA ###
+  kwpv=numeric() # Numeric vector for indexing KW ANOVA p-values
+
+  ## Loop for KW ANOVA of across BMI category
+  for (i in 1:ncol(anova.dat)){
+    kwpv[i]=kruskal.test(x=anova.dat[,i], g=H$BMI.cat)$p.value # Indexing the p-value from each ANOVA
+  }
+
+  ###  P-value adjustments  ###
+    ## Benjamini-Hochberg pvalue correction ##
+	    kwbh=p.adjust(kwpv, method = "BH") # Adjusting KW p-values according to Benjamini-Hochberg
+Anova.res=data.frame(colnames(anova.dat), kwpv, kwbh) # Table of results with p-value and FDR corrected p-value from ANOVA
+
+
+### Dunn non-parametric test for multiple comparison ###
+library(PMCMR)
+  tmp=matrix(NA, ncol = 4, nrow = ncol(anova.dat)) # Matrix for indexing post hoc test for each oxylipid
+    colnames(tmp)=c("var","lean-overwt","lean-obese", "overwt-obese" ) # column names for the multiple comparisons
+      tmp[,1]=colnames(anova.dat)
+  ##  Post hoc testing for clinical data and oxylipids  ##
+  for (i in 1:ncol(anova.dat)){
+    tmpindex=posthoc.kruskal.dunn.test(x=anova.dat[,i], g=H$BMI.cat, p.adjust.method = "BH")
+      tmpgetp=get.pvalues(tmpindex)
+        tmp[i,2]=tmpgetp[[1]] # Overweight category compared to lean
+        tmp[i,3]=tmpgetp[[2]] # Obese category compared to lean
+        tmp[i,4]=tmpgetp[[3]] # Obese category compared to overweight
+  }
+
+
+#####################################
+#####  Single Lipid Regressions #####
+#####################################
+Reg.results=matrix(NA, ncol = 9, nrow = ncol(ox.minimp)) # Matrix for indexing regression results
+  colnames(Reg.results)=c("lipid","bmi.beta","bmi.pval", "bmi.bh", "bmi.bon","wc.beta","wc.pval", "wc.bh", "wc.bon" )
+    Reg.results[,1]=colnames(ox.minimp)
+
+dim(ox.minimp)# 123 rows, 44 lipids including PUFAs, oxylipids, and oxylipid totals and product-to-precursor ratios
+
+### Setting the model response and independent variables ###
+  X=log(ox.minimp) # Log transforming data matrix
+
+  ### Loop of single marker regressions of oxylipid data ###
+  for (i in 1:ncol(X)){ # For each column of data matrix
+    tmp=summary(lm(H$BMI~ X[,i] + H$age + H$Smoking)) # BMI regressed on oxylipids 
+      Reg.results[i,2]=tmp$coefficients[2,1] # Indexing beta coefficent
+      Reg.results[i,3]=tmp$coefficients[2,4] # Indexing p-value 
+    tmp1=summary(lm(H$WC~ X[,i] + H$age + H$Smoking)) # BMI regressed on oxylipids 
+      Reg.results[i,6]=tmp1$coefficients[2,1] # Indexing beta coefficent
+      Reg.results[i,7]=tmp1$coefficients[2,4] # Indexing p-value 
+  }
+
+  ###  P-value adjustments  ###
+    ## Benjamini-Hochberg pvalue correction ##
+      Reg.results[,4]=p.adjust(Reg.results[,3], method='BH') # BMI p-value correction according to Benjamini-Hochberg
+      Reg.results[,8]=p.adjust(Reg.results[,7], method='BH') # WC p-value correction according to Benjamini-Hochberg
+    ##  Bonferroni p-value correction  ##
+      Reg.results[,5]=p.adjust(Reg.results[,3], method='bonferroni') # BMI p-value correction according to Bonferroni
+      Reg.results[,9]=p.adjust(Reg.results[,7], method='bonferroni') # WC p-value correction according to Bonferroni
+      bon.cutoff=0.05/ncol(X) # p-value cut off 0.0011
+      
+
+
+#####################################
+########## Factor Analysis ##########
+##################################### 
+X=ox.minimp
+colnames(X)
+X=ox.minimp[,-c(4,8,9,10,13,16,17,18,26,31,32,41 )] # removing oxylipid totals and product to precursor ratios
+colnames(X)
+
+dim(X) # 32 PUFAs and oxylipids
+      
+### Generating Scree Plot  ###
+install.packages("FactoMineR")
+  library(FactoMineR)
+    tmp=PCA(X)
+      plot(tmp$eig$eigenvalue) # 4 factors based on scree plot and eigenvalues >1
+      
+### Factor Analysis ###
+install.packages("psych")
+  library(psych)
+    tmp<- principal(X, nfactors = 4, rotate = "varimax") # Generating 4 factors from oxylipid data
+      tmp$loadings # Varimax matrix of lipid loadings in each component
+
+### matrix to index outputs of regressions ###
+fanal=matrix(NA, nrow=4, ncol = 4)
+  colnames(fanal)= c("bmi.beta", "bmi.pval", "wc.beta", "wc.pval")
+    rownames(fanal)= c('factor1', "factor2", "factor3", "factor4")
+
+      ###  BMI and WC regression with factor scores  ###
+      for (i in 1:4){
+        bmireg=summary(lm(H$BMI~ tmp$scores[,i] + H$age + H$Smoking
+          fanal[i,1]=bmireg$coefficients[2,1]
+          fanal[i,2]=bmireg$coefficients[2,4]
+        wcreg=summary(lm(H$WC~ tmp$scores[,i] + H$age + H$Smoking))
+          fanal[i,3]=wcreg$coefficients[2,1]
+          fanal[i,4]=wcreg$coefficients[2,4]
+      }
+ 
+
+###########################################
+#### PUFA Normalized Oxylipids Regressions ####
+########################################### 
+pcn.minimp=ox.minimp # Creating new dataframe for PUFA normalized oxylipids
+ colnames(pcn.minimp)
+ 
+X=pcn.minimp
+ X[,2:18]=X[,2:18]/X$LA # Normalizing linoleic acid (LA)-derived oxylipids to LA
+ X[,20:37]=X[,20:37]/X$AA #Normalizing to arachidonic acid (AA)-derived oxylipids to AA
+ X[,39:41]=X[,39:41]/X$EPA #Normalizing to eicosapentaenoic acid (EPA)-derived oxylipids to EPA
+ X[,43:44]=X[,43:44]/X$DHA #Normalizing to docosahexaenoic acid (DHA)-derived oxylipids to DHA
+pcn=X[,-c(1,5,9:10,17:20,32,38,42)] # Removing PUFAs, oxylipids without parent PUFA in data matrix, and oxylipid product-to-precursor ratios
+  colnames(pcn) # Verifying correct PUFAs and oxylipids were removed
+  
+### Matrix for indexing  outputs of regressions ###
+norm.results=matrix(NA, ncol = 9, nrow = ncol(pcn)) # Matrix for indexing PUFA-normalized regression results
+  colnames(norm.results)=c("lipid","bmi.beta","bmi.pval", "bmi.bh", "bmi.bon","wc.beta","wc.pval", "wc.bh", "wc.bon" )
+    norm.results[,1]=colnames(pcn)
+
+dim(pcn)# 123 rows, 33 oxylipids and oxylipid totals
+
+### Setting the model response and independent variables ###
+  X=log(pcn) # Log transforming data matrix
+  
+  for (i in 1:ncol(X)){ # For each column of data matrix
+    tmp=summary(lm(H$BMI~ X[,i] + H$age + H$Smoking)) # BMI regressed on oxylipids 
+      norm.results[i,2]=tmp$coefficients[2,1] # Indexing beta coefficient
+      norm.results[i,3]=tmp$coefficients[2,4] # Indexing p-value 
+    tmp1=summary(lm(H$WC~ X[,i] + H$age + H$Smoking)) # WC regressed on oxylipids 
+      norm.results[i,6]=tmp1$coefficients[2,1] # Indexing beta coefficient
+      norm.results[i,7]=tmp1$coefficients[2,4] # Indexing p-value 
+  }
+
+  ###  P-value adjustments  ###
+  ## Benjamini-Hochberg pvalue correction ##
+    norm.results[,4]=p.adjust(norm.results[,3], method='BH') # BMI p-value correction according to Benjamini-Hochberg
+    norm.results[,8]=p.adjust(norm.results[,7], method='BH') # WC p-value correction according to Benjamini-Hochberg
+  ##  Bonferroni p-value correction  ##
+    norm.results[,5]=p.adjust(norm.results[,3], method='bonferroni') # BMI p-value correction according to Bonferroni
+    norm.results[,9]=p.adjust(norm.results[,7], method='bonferroni') # WC p-value correction according to Bonferroni
+    bon.cutoff=0.05/ncol(X) # p-value cut off 0.0015
+  
+
+###############  End R Code  ###############
+
+/*************  Start SAS Code  *************/
+
