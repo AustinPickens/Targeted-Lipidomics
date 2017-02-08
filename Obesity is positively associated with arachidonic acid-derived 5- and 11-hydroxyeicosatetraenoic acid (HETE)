@@ -1,5 +1,5 @@
 load("sqrt min imputed oxylipids.rda") # loading the R object "ox.minimp", the sqrt min imputed oxylipid data matrix
-load("human data.rda") # loading the R object "H", the data set containing patient clinical metadata (i.e., BMI, WC, age, smoking)
+load("human data.rda") # loading the R object "H", the data set containing patient clinical metadata (i.e., BMI, WC, serum cytokines,  age, smoking)
 
 all.equal.character(rownames(H), rownames(ox.minimp)) # The clinical data for each patient is aligned with their oxylipid data
 
@@ -10,7 +10,8 @@ all.equal.character(rownames(H), rownames(ox.minimp)) # The clinical data for ea
 #### Kruskall Wallis (KW) one-way ANOVA was conducted across BMI categories along
   # with Dunn's test for multiple comparison  #####
 
-anova.dat=data.frame(H$age,H$BMI, H$WC, ox.minimp)# data for ANOVA and post hoc in Table 1 and Supplementary Table 1
+anova.dat=data.frame(H$age,H$BMI, H$WC, H$leptin, H$total.adiponectin, H$IL_6, 
+	H$TNF_a, H$c_peptide, ox.minimp)# data for ANOVA and post hoc in Table 1
 
 ### KW one-way ANOVA ###
   kwpv=numeric() # Numeric vector for indexing KW ANOVA p-values
@@ -72,45 +73,7 @@ dim(ox.minimp)# 123 rows, 44 lipids including PUFAs, oxylipids, and oxylipid tot
       Reg.results[,9]=p.adjust(Reg.results[,7], method='bonferroni') # WC p-value correction according to Bonferroni
       bon.cutoff=0.05/ncol(X) # p-value cut off 0.0011
       
-
-
-#####################################
-########## Factor Analysis ##########
-##################################### 
-X=ox.minimp
-colnames(X)
-X=ox.minimp[,-c(4,8,9,10,13,16,17,18,26,31,32,41 )] # removing oxylipid totals and product to precursor ratios
-colnames(X)
-
-dim(X) # 32 PUFAs and oxylipids
-      
-### Generating Scree Plot  ###
-install.packages("FactoMineR")
-  library(FactoMineR)
-    tmp=PCA(X)
-      plot(tmp$eig$eigenvalue) # 4 factors based on scree plot and eigenvalues >1
-      
-### Factor Analysis ###
-install.packages("psych")
-  library(psych)
-    tmp<- principal(X, nfactors = 4, rotate = "varimax") # Generating 4 factors from oxylipid data
-      tmp$loadings # Varimax matrix of lipid loadings in each component
-
-### matrix to index outputs of regressions ###
-fanal=matrix(NA, nrow=4, ncol = 4)
-  colnames(fanal)= c("bmi.beta", "bmi.pval", "wc.beta", "wc.pval")
-    rownames(fanal)= c('factor1', "factor2", "factor3", "factor4")
-
-      ###  BMI and WC regression with factor scores  ###
-      for (i in 1:4){
-        bmireg=summary(lm(H$BMI~ tmp$scores[,i] + H$age + H$Smoking
-          fanal[i,1]=bmireg$coefficients[2,1]
-          fanal[i,2]=bmireg$coefficients[2,4]
-        wcreg=summary(lm(H$WC~ tmp$scores[,i] + H$age + H$Smoking))
-          fanal[i,3]=wcreg$coefficients[2,1]
-          fanal[i,4]=wcreg$coefficients[2,4]
-      }
- 
+#### Serum cytokine regressions were conducted in a similar manner  ####
 
 ###########################################
 #### PUFA Normalized Oxylipids Regressions ####
@@ -153,9 +116,41 @@ dim(pcn)# 123 rows, 33 oxylipids and oxylipid totals
     norm.results[,5]=p.adjust(norm.results[,3], method='bonferroni') # BMI p-value correction according to Bonferroni
     norm.results[,9]=p.adjust(norm.results[,7], method='bonferroni') # WC p-value correction according to Bonferroni
     bon.cutoff=0.05/ncol(X) # p-value cut off 0.0015
-  
+
+#### Serum cytokine regressions were conducted in a similar manner  ####
 
 ###############  End R Code  ###############
 
 /*************  Start SAS Code  *************/
+proc rank data=oxylipid out=oxylipid.tertile groups=3;
+var X9_10_epome; /**each oxylipid variable was entered here indvidually**/
+ranks Rank_F1;
+run;
+
+/******Defining Variables*******/
+data oxylipid.tertile; set oxylipid.tertile;
+if (Rank_F1=0) then F1tirtile=1;
+else if (Rank_F1=1) then F1tirtile=2;
+else if (Rank_F1=2) then F1tirtile=3;
+
+if F1tirtile=1 then F1tirtile1=1;else F1tirtile1=0;
+if F1tirtile=2 then F1tirtile2=1;else F1tirtile2=0;
+if F1tirtile=3 then F1tirtile3=1;else F1tirtile3=0;
+run;
+
+
+/***Test for Trend***/
+proc logistic descending data=oxylipid.tertile;
+class BMI_category;
+model BMI_category= f1tirtile age smoking/link=glogit;
+title 'Logistic-outcome BMI category vs. 9,10-epome TREND TEST'; /** titles were adjusted per oxylipid analyzed **/
+run;
+
+
+/***Test for Exposure***/
+proc logistic descending data= oxylipid.tertile;
+class BMI_category;
+model BMI_category= age smoking f1tirtile2 f1tirtile3/link=glogit;
+title 'Logistic-outcome BMI category vs. 9,10-epome TEST EXPOSURE;  /** titles were adjusted per oxylipid analyzed **/
+run;
 
